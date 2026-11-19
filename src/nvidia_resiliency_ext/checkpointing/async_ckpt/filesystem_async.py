@@ -155,6 +155,10 @@ class FileSystemWriterAsync(FileSystemWriter):
 
     Currently, it is assumed that a separate writer is created for each ckpt save
     (intermediate state is stored as writer attributes).
+
+    With ``use_msc=True``, ``writer_options`` (a picklable
+    ``multistorageclient.StreamingWriterOptions``) is passed to ``msc.open`` for every shard, so
+    shards stream through a bounded multipart upload instead of being buffered whole.
     """
 
     # Class-level cache to track identifiers that have been sent to worker across instances
@@ -180,10 +184,14 @@ class FileSystemWriterAsync(FileSystemWriter):
         is_multiproc_io: bool = False,
         use_cached_data_structure: bool = False,
         use_cpu_shm_for_gpu_tensors: bool = False,
+        writer_options: Optional[Any] = None,
         **kwargs,
     ):
+        if writer_options is not None and not use_msc:
+            raise ValueError('writer_options requires use_msc=True')
         self.checkpoint_dir = path
         self.use_msc = use_msc
+        self.writer_options = writer_options
         self.open_file = kwargs.pop("open_file", open)  # for overriding in tests
 
         super().__init__(path, *args, **kwargs)
@@ -521,6 +529,8 @@ class FileSystemWriterAsync(FileSystemWriter):
             import multistorageclient as msc
 
             open_file = msc.open
+            if self.writer_options is not None:
+                open_file = partial(msc.open, writer_options=self.writer_options)
         else:
             open_file = self.open_file
 
